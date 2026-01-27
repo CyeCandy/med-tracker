@@ -2,7 +2,7 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 from datetime import datetime
-from database import init_db, add_user, get_meds, get_all_patients, get_last_dose_time
+from database import init_db, add_user, get_meds, get_all_patients, get_last_dose_time, add_prescription, get_prescriptions
 
 st.set_page_config(page_title="MedLog Shared Care", page_icon="🏥", layout="wide")
 init_db()
@@ -10,110 +10,106 @@ init_db()
 # Session State
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
-if 'user' not in st.session_state:
-    st.session_state.user = None
-if 'role' not in st.session_state:
-    st.session_state.role = None
 if 'signup_iter' not in st.session_state:
     st.session_state.signup_iter = 0
 
-# --- AUTH / SIGNUP ---
+# --- AUTHENTICATION ---
 if not st.session_state.logged_in:
     menu = st.sidebar.radio("Navigation", ["Login", "Sign Up"])
-    
     if menu == "Sign Up":
         st.title("🏥 Register New User")
-        u = st.text_input("Choose Username", key=f"reg_u_{st.session_state.signup_iter}")
-        p = st.text_input("Choose Password", type="password", key=f"reg_p_{st.session_state.signup_iter}")
-        r = st.selectbox("Assign Role", ["Patient", "Clinician/Family"], key=f"reg_r_{st.session_state.signup_iter}")
-        role_map = {"Patient": "Patient", "Clinician/Family": "Clinician"}
-        
-        if st.button("Register User"):
+        u = st.text_input("Username", key=f"u_{st.session_state.signup_iter}")
+        p = st.text_input("Password", type="password", key=f"p_{st.session_state.signup_iter}")
+        r = st.selectbox("Role", ["Patient", "Clinician"], key=f"r_{st.session_state.signup_iter}")
+        if st.button("Create Account"):
             if u and p:
-                if add_user(u, p, role_map[r]):
-                    st.success(f"✅ Account for **{u}** created!")
-                    if st.button("Clear & Add Another"):
-                        st.session_state.signup_iter += 1
-                        st.rerun()
-                else:
-                    st.error("❌ Username already exists.")
-
+                if add_user(u, p, r):
+                    st.success(f"✅ Account created for {u}!")
+                    st.session_state.signup_iter += 1
+                    st.rerun()
     else:
         st.title("🔐 Login")
-        u = st.text_input("Username")
-        p = st.text_input("Password", type="password")
+        l_u = st.text_input("Username")
+        l_p = st.text_input("Password", type="password")
         if st.button("Login"):
-            conn = sqlite3.connect('meds.db', check_same_thread=False)
+            conn = sqlite3.connect('meds.db')
             c = conn.cursor()
-            c.execute('SELECT role FROM users WHERE username=? AND password=?', (u, p))
+            c.execute('SELECT role FROM users WHERE username=? AND password=?', (l_u, l_p))
             res = c.fetchone()
-            conn.close()
             if res:
-                st.session_state.logged_in = True
-                st.session_state.user = u
-                st.session_state.role = res[0]
+                st.session_state.logged_in, st.session_state.user, st.session_state.role = True, l_u, res[0]
                 st.rerun()
-            else:
-                st.error("Invalid credentials.")
+            else: st.error("Invalid credentials.")
 
 # --- DASHBOARD ---
 else:
-    st.sidebar.title(f"Welcome, {st.session_state.user}")
-    
-    # Identify who we are looking at
-    target_user = st.session_state.user 
-    
+    st.sidebar.subheader(f"User: {st.session_state.user} ({st.session_state.role})")
+    target_user = st.session_state.user
+
+    # CLINICIAN VIEW: Search and Manage
     if st.session_state.role == "Clinician":
-        st.title("👨‍⚕️ Clinician Control Panel")
         patients = get_all_patients()
+        target_user = st.sidebar.selectbox("🔍 Search/Select Patient:", ["Select Patient"] + patients)
         
-        if patients:
-            # SEARCHABLE DROPDOWN
-            target_user = st.sidebar.selectbox("🔍 Search/Select Patient:", patients)
-            st.subheader(f"Monitoring: {target_user}")
-        else:
-            st.warning("No patients found in system.")
-    else:
-        st.title(f"📊 My Health Log: {st.session_state.user}")
-
-    # --- STATUS ALERT ---
-    last_time_str = get_last_dose_time(target_user)
-    if last_time_str:
-        last_dose_dt = datetime.strptime(last_time_str, "%Y-%m-%d %H:%M")
-        hours_since = (datetime.now() - last_dose_dt).total_seconds() / 3600
-        if hours_since > 4:
-            st.error(f"🚨 ALERT: {target_user} is {hours_since:.1f} hours overdue!")
-        else:
-            st.success(f"✅ {target_user} is on track. Last dose: {hours_since:.1f} hours ago.")
-
-    # --- CLINICIAN ENTRY FORM ---
-    with st.expander(f"💊 Log Medication for {target_user}", expanded=True):
-        with st.form("entry_form", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                drug = st.text_input("Medication Name")
-            with col2:
-                dose = st.text_input("Dosage (e.g., 500mg)")
-            
-            submit = st.form_submit_button("Record Dose")
-            if submit:
-                if drug and dose:
-                    conn = sqlite3.connect('meds.db', check_same_thread=False)
-                    c = conn.cursor()
-                    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    c.execute('INSERT INTO medications VALUES (?,?,?,?)', (target_user, drug, dose, now))
-                    conn.commit()
-                    conn.close()
-                    st.toast(f"Recorded {drug} for {target_user}")
+        if target_user == "Select Patient":
+            st.title("Clinician Dashboard")
+            st.info("Please select a patient from the sidebar to manage their medications.")
+            st.stop()
+        
+        # Section to extend/update the meds list
+        with st.expander(f"⚙️ Manage {target_user}'s Medication List", expanded=False):
+            st.write("Add or Update prescribed medications for this patient.")
+            m_col1, m_col2 = st.columns(2)
+            with m_col1: new_m = st.text_input("Drug Name (e.g., Aspirin)")
+            with m_col2: new_d = st.text_input("Dosage (e.g., 100mg)")
+            if st.button("Save to Master List"):
+                if new_m and new_d:
+                    add_prescription(target_user, new_m, new_d)
+                    st.success(f"Updated {new_m} dosage.")
                     st.rerun()
 
-    # --- HISTORY ---
-    st.subheader(f"📜 {target_user}'s Dose History")
-    history = get_meds(target_user)
-    if history:
-        df = pd.DataFrame(history, columns=["Medication", "Dosage", "Logged At"])
-        st.dataframe(df, use_container_width=True)
+    # DASHBOARD CONTENT
+    st.title(f"Medication Dashboard: {target_user}")
+
+    # 4-Hour Status Alert
+    last_time = get_last_dose_time(target_user)
+    if last_time:
+        diff = (datetime.now() - datetime.strptime(last_time, "%Y-%m-%d %H:%M")).total_seconds() / 3600
+        if diff > 4: st.error(f"🚨 OVERDUE: {diff:.1f} hours since last dose.")
+        else: st.success(f"✅ ON TRACK: Last dose was {diff:.1f} hours ago.")
+
+    # REACTIVE LOGGING FORM
+    st.subheader("💊 Log a Dose")
+    master_meds = get_prescriptions(target_user)
     
-    if st.sidebar.button("Logout"):
+    if master_meds:
+        # User searches for the drug in the prescribed list
+        drug_names = [m[0] for m in master_meds]
+        selected_drug = st.selectbox("Search Prescribed Medications:", [""] + drug_names)
+        
+        if selected_drug:
+            # Reactively find the dose associated with the selection
+            dose_val = next(m[1] for m in master_meds if m[0] == selected_drug)
+            st.write(f"**Selected Dosage:** {dose_val}")
+            
+            if st.button(f"Confirm & Log {selected_drug}"):
+                conn = sqlite3.connect('meds.db')
+                c = conn.cursor()
+                now = datetime.now().strftime("%Y-%m-%d %H:%M")
+                c.execute('INSERT INTO medications VALUES (?,?,?,?)', (target_user, selected_drug, dose_val, now))
+                conn.commit()
+                st.toast(f"Dose of {selected_drug} recorded!")
+                st.rerun()
+    else:
+        st.warning("No medications prescribed yet. A clinician must add meds to the master list.")
+
+    # HISTORY TABLE
+    st.subheader("Recent History")
+    hist = get_meds(target_user)
+    if hist:
+        df = pd.DataFrame(hist, columns=["Medication", "Dosage", "Timestamp"])
+        st.dataframe(df, use_container_width=True)
+
+    if st.sidebar.button("Log Out"):
         st.session_state.logged_in = False
         st.rerun()
