@@ -17,20 +17,21 @@ if 'logged_in' not in st.session_state:
 
 # --- AUTHENTICATION ---
 if not st.session_state.logged_in:
-    tab1, tab2 = st.tabs(["Login", "Sign Up"])
+    tab1, tab2 = st.tabs(["🔐 Login", "📝 Register"])
     with tab2:
         st.subheader("Create New Account")
         u = st.text_input("New Username")
         p = st.text_input("New Password", type="password")
-        r = st.selectbox("Role", ["Patient", "Clinician"])
-        if st.button("Register Account"):
-            if add_user(u, p, r): 
-                st.success("Account created! Please log in.")
+        r = st.selectbox("I am a...", ["Patient", "Clinician"])
+        if st.button("Create Account"):
+            if u and p:
+                if add_user(u, p, r): st.success("Success! Now go to the Login tab.")
+            else: st.warning("Fields cannot be empty.")
     with tab1:
         st.subheader("Login")
         l_u = st.text_input("Username")
         l_p = st.text_input("Password", type="password")
-        if st.button("Log In"):
+        if st.button("Sign In"):
             conn = sqlite3.connect('meds.db')
             c = conn.cursor()
             c.execute('SELECT role FROM users WHERE username=? AND password=?', (l_u, l_p))
@@ -38,113 +39,97 @@ if not st.session_state.logged_in:
             if res:
                 st.session_state.logged_in, st.session_state.user, st.session_state.role = True, l_u, res[0]
                 st.rerun()
-            else:
-                st.error("Invalid credentials.")
+            else: st.error("Invalid credentials.")
 
-# --- MAIN DASHBOARD AREA ---
+# --- MAIN DASHBOARD ---
 else:
-    st.sidebar.title(f"🏥 MedLog")
-    st.sidebar.write(f"**User:** {st.session_state.user}")
-    st.sidebar.write(f"**Role:** {st.session_state.role}")
+    st.sidebar.title(f"🏥 MedLog Pro")
+    st.sidebar.markdown(f"**Logged in:** `{st.session_state.user}`")
+    st.sidebar.info(f"Role: {st.session_state.role}")
     
     target_user = st.session_state.user
 
-    # CLINICIAN SELECTOR
+    # CLINICIAN LOGIC
     if st.session_state.role == "Clinician":
         patients = get_all_patients()
-        target_user = st.sidebar.selectbox("🔍 Select Patient to Manage:", ["Select Patient"] + patients)
+        target_user = st.sidebar.selectbox("🔍 Select Patient to View:", ["-- Select --"] + patients)
         
-        if target_user == "Select Patient":
-            st.title("Clinician Overview")
-            st.info("Please select a patient from the sidebar to view the dashboard.")
-            if st.sidebar.button("Log Out"):
+        if target_user == "-- Select --":
+            st.title("Welcome, Clinician")
+            st.markdown("### To get started:")
+            st.write("1. Create a **Patient** account if you haven't yet.")
+            st.write("2. Select that patient from the **sidebar dropdown**.")
+            st.write("3. Once selected, their full dashboard will appear here.")
+            if st.sidebar.button("Logout"):
                 st.session_state.logged_in = False
                 st.rerun()
-            st.stop() # Stops execution here until a patient is picked
+            st.stop() # Main page content below won't run until patient is selected
 
-    # --- THE DASHBOARD CONTENT (Only shows if a patient is active) ---
-    st.title(f"Care Dashboard: {target_user}")
+    # --- DASHBOARD VISUALS ---
+    st.title(f"Dashboard: {target_user}")
 
-    # 1. TOP SECTION: CLINICIAN SETUP (Hidden from Patients)
+    # 1. Clinician Tools
     if st.session_state.role == "Clinician":
-        with st.expander("⚙️ Clinical Setup: Define Prescriptions", expanded=True):
-            st.write("Medications added here populate the list below.")
+        with st.expander("⚙️ Clinical Setup & Prescriptions", expanded=True):
+            st.write("Quick-add common schedules for this patient:")
             c1, c2, c3 = st.columns(3)
-            if c1.button("➕ Oxycontin (100ml)"):
-                add_prescription(target_user, "Oxycontin", "100 ml"); st.rerun()
-            if c2.button("➕ Oxycodone (7ml)"):
-                add_prescription(target_user, "Oxycodone", "7 ml"); st.rerun()
-            if c3.button("➕ CBD Oil (1ml)"):
-                add_prescription(target_user, "CBD Oil", "1 ml"); st.rerun()
-            
-            st.divider()
-            custom_n = st.text_input("Add Custom Drug Name")
-            custom_d = st.text_input("Dose (e.g. 5 ml)")
-            if st.button("Add Custom Prescription"):
-                if custom_n and custom_d:
-                    add_prescription(target_user, custom_n, custom_d); st.rerun()
+            if c1.button("➕ Oxycontin (100ml)"): add_prescription(target_user, "Oxycontin", "100 ml"); st.rerun()
+            if c2.button("➕ Oxycodone (7ml)"): add_prescription(target_user, "Oxycodone", "7 ml"); st.rerun()
+            if c3.button("➕ CBD Oil (1ml)"): add_prescription(target_user, "CBD Oil", "1 ml"); st.rerun()
 
-    # 2. SAFETY SUMMARY
-    st.subheader("📊 24-Hour Cumulative Totals")
-    col1, col2, col3 = st.columns(3)
+    # 2. Cumulative Dashboard
+    st.subheader("📊 24-Hour Safety Metrics")
+    m1, m2, m3 = st.columns(3)
     o_tot = get_24hr_total(target_user, "Oxycodone")
     c_tot = get_24hr_total(target_user, "CBD Oil")
     con_tot = get_24hr_total(target_user, "Oxycontin")
     
-    col1.metric("Oxycodone", f"{o_tot} ml", "Max 35ml")
-    col2.metric("CBD Oil", f"{c_tot} ml", "Limit 4ml")
-    col3.metric("Oxycontin", f"{con_tot} ml")
+    m1.metric("Oxycodone", f"{o_tot} ml", "Target: <35ml")
+    m2.metric("CBD Oil", f"{c_tot} ml", "Target: <4ml")
+    m3.metric("Oxycontin", f"{con_tot} ml")
 
-    # 3. ALARM CHECKS
+    # 3. Alarms
     alarm = False
-    l_contin = get_last_dose_time(target_user, "Oxycontin")
-    if l_contin:
-        if (datetime.now() - datetime.strptime(l_contin, "%Y-%m-%d %H:%M")).total_seconds() / 3600 >= 12:
-            st.error("🔔 Oxycontin is DUE (12h elapsed)"); alarm = True
-            
-    l_codone = get_last_dose_time(target_user, "Oxycodone")
-    if l_codone:
-        if (datetime.now() - datetime.strptime(l_codone, "%Y-%m-%d %H:%M")).total_seconds() / 3600 >= 4:
-            st.error("🔔 Oxycodone is DUE (4h elapsed)"); alarm = True
-    
+    for drug, limit in [("Oxycontin", 12), ("Oxycodone", 4)]:
+        last = get_last_dose_time(target_user, drug)
+        if last:
+            diff = (datetime.now() - datetime.strptime(last, "%Y-%m-%d %H:%M")).total_seconds() / 3600
+            if diff >= limit:
+                st.error(f"🔔 {drug} is DUE ({diff:.1f}h since last dose)")
+                alarm = True
     if alarm: play_alarm()
 
-    # 4. LOGGING DOSE
+    # 4. Log Meds
     st.divider()
-    st.subheader("💊 Record Medication Dose")
-    master_list = get_prescriptions(target_user)
-    
-    if not master_list:
-        st.warning("⚠️ No medications prescribed. A clinician must use the setup section above.")
+    st.subheader("💊 Record a New Dose")
+    master = get_prescriptions(target_user)
+    if not master:
+        st.warning("No medications prescribed for this patient.")
     else:
-        options_map = {}
-        for name, dose in master_list:
-            last_t = get_last_dose_time(target_user, name)
-            diff = f"{(datetime.now() - datetime.strptime(last_t, '%Y-%m-%d %H:%M')).total_seconds()/3600:.1f}h ago" if last_t else "Never"
-            label = f"{name} ({dose}) - Last: {diff}"
-            options_map[label] = (name, dose)
-
-        sel_label = st.selectbox("Choose medication:", [""] + list(options_map.keys()))
-        if sel_label:
-            n, d = options_map[sel_label]
+        options = {}
+        for n, d in master:
+            l_t = get_last_dose_time(target_user, n)
+            t_str = f"{(datetime.now() - datetime.strptime(l_t, '%Y-%m-%d %H:%M')).total_seconds()/3600:.1f}h ago" if l_t else "Never"
+            options[f"{n} ({d}) - Last: {t_str}"] = (n, d)
+        
+        choice = st.selectbox("Select Med:", [""] + list(options.keys()))
+        if choice:
+            n, d = options[choice]
             if n == "Oxycodone" and o_tot >= 35:
-                st.error("🛑 STOP: 35ml limit reached. Logging blocked.")
-            else:
-                if st.button(f"Confirm Dose: {n} {d}"):
-                    conn = sqlite3.connect('meds.db')
-                    c = conn.cursor()
-                    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    c.execute('INSERT INTO medications VALUES (?,?,?,?)', (target_user, n, d, now))
-                    conn.commit()
-                    st.success("Dose logged successfully!")
-                    st.rerun()
+                st.error("🛑 24h Limit Reached. Cannot log more.")
+            elif st.button(f"Submit {n} {d}"):
+                conn = sqlite3.connect('meds.db')
+                c = conn.cursor()
+                now = datetime.now().strftime("%Y-%m-%d %H:%M")
+                c.execute('INSERT INTO medications VALUES (?,?,?,?)', (target_user, n, d, now))
+                conn.commit()
+                st.rerun()
 
-    # 5. HISTORY
-    st.subheader("📜 Medication History")
+    # 5. History
+    st.subheader("📜 Log History")
     hist = get_meds(target_user)
     if hist:
-        df = pd.DataFrame(hist, columns=["Medication", "Dosage", "Logged At"])
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(pd.DataFrame(hist, columns=["Drug", "Dose", "Timestamp"]), use_container_width=True)
 
     if st.sidebar.button("Logout"):
         st.session_state.logged_in = False
