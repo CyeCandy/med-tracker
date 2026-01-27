@@ -23,5 +23,5 @@ MedLog is a collaborative web application designed to help patients and clinicia
 
 1. **Clone the repository:**
    ```bash
-   git clone [https://github.com/YOUR_USERNAME/med-tracker.git](https://github.com/YOUR_USERNAME/med-tracker.git)
+   git clone [https://github.com/CyeCandy/med-tracker.git]
    cd med-tracker
