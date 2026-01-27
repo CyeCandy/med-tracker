@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import datetime, timedelta
 
 def init_db():
     conn = sqlite3.connect('meds.db', check_same_thread=False)
@@ -64,3 +65,18 @@ def get_last_dose_time(username, drug_name=None):
     result = c.fetchone()
     conn.close()
     return result[0] if result else None
+
+def get_24hr_total(username, drug_name):
+    conn = sqlite3.connect('meds.db', check_same_thread=False)
+    c = conn.cursor()
+    since = (datetime.now() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M")
+    c.execute('SELECT dosage FROM medications WHERE username=? AND name=? AND timestamp > ?', (username, drug_name, since))
+    doses = c.fetchall()
+    conn.close()
+    total = 0.0
+    for d in doses:
+        try:
+            total += float(d[0].lower().replace('ml', '').strip())
+        except:
+            continue
+    return total
