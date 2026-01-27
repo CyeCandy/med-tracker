@@ -5,23 +5,17 @@ import streamlit.components.v1 as components
 from datetime import datetime
 from database import init_db, add_user, get_meds, get_all_patients, get_last_dose_time, add_prescription, get_prescriptions, get_24hr_total
 
-st.set_page_config(page_title="MedLog Shared Care", page_icon="🏥", layout="wide")
+st.set_page_config(page_title="MedLog Safety Pro", page_icon="🏥", layout="wide")
 init_db()
 
-# Function to play alarm sound
 def play_alarm():
-    # This uses a standard notification sound URL
-    sound_html = """
-    <audio autoplay>
-      <source src="https://cdn.pixabay.com/audio/2022/03/15/audio_731477782b.mp3" type="audio/mpeg">
-    </audio>
-    """
+    sound_html = """<audio autoplay><source src="https://cdn.pixabay.com/audio/2022/03/15/audio_731477782b.mp3" type="audio/mpeg"></audio>"""
     components.html(sound_html, height=0)
 
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
-# --- AUTHENTICATION ---
+# --- AUTH ---
 if not st.session_state.logged_in:
     menu = st.sidebar.radio("Navigation", ["Login", "Sign Up"])
     if menu == "Sign Up":
@@ -54,70 +48,80 @@ else:
         target_user = st.sidebar.selectbox("🔍 Patient:", ["Select Patient"] + patients)
         if target_user == "Select Patient": st.stop()
         
-        with st.expander("⚙️ Set Prescriptions", expanded=False):
-            st.subheader("Quick-Add Specified Schedules")
-            q1, q2 = st.columns(2)
-            if q1.button("➕ Oxycontin 100ml (12h)"):
+        with st.expander("⚙️ Set Prescriptions & Quick-Add", expanded=False):
+            q1, q2, q3 = st.columns(3)
+            if q1.button("➕ Oxycontin 100ml"):
                 add_prescription(target_user, "Oxycontin", "100 ml"); st.rerun()
-            if q2.button("➕ Oxycodone 7ml (4h)"):
+            if q2.button("➕ Oxycodone 7ml"):
                 add_prescription(target_user, "Oxycodone", "7 ml"); st.rerun()
+            if q3.button("➕ CBD Oil 1ml"):
+                add_prescription(target_user, "CBD Oil", "1 ml"); st.rerun()
 
-    st.title(f"Medication Log: {target_user}")
+    st.title(f"Care Dashboard: {target_user}")
 
-    # --- ALARM & SAFETY LOGIC ---
+    # --- 24-HOUR CUMULATIVE SAFETY MONITOR ---
+    st.subheader("📊 24-Hour Dosage Summary")
+    s_col1, s_col2, s_col3 = st.columns(3)
+    
+    oxy_total = get_24hr_total(target_user, "Oxycodone")
+    cbd_total = get_24hr_total(target_user, "CBD Oil")
+    contin_total = get_24hr_total(target_user, "Oxycontin")
+
+    s_col1.metric("Oxycodone Total", f"{oxy_total} ml", "/ 35 ml")
+    s_col2.metric("CBD Oil Total", f"{cbd_total} ml", "/ 4 ml")
+    s_col3.metric("Oxycontin Total", f"{contin_total} ml")
+
+    # Alarm/Warning Logic
     alarm_triggered = False
     
-    # Check Oxycontin (12h)
+    # Oxycontin 12h check
     last_contin = get_last_dose_time(target_user, "Oxycontin")
     if last_contin:
-        c_diff = (datetime.now() - datetime.strptime(last_contin, "%Y-%m-%d %H:%M")).total_seconds() / 3600
-        if c_diff >= 12:
-            st.error(f"🔔 DUE NOW: Oxycontin (Last dose {c_diff:.1f}h ago)")
-            alarm_triggered = True
-            
-    # Check Oxycodone (4h)
+        if (datetime.now() - datetime.strptime(last_contin, "%Y-%m-%d %H:%M")).total_seconds() / 3600 >= 12:
+            st.error("🔔 DUE: Oxycontin (12h elapsed)"); alarm_triggered = True
+
+    # Oxycodone 4h check
     last_codone = get_last_dose_time(target_user, "Oxycodone")
     if last_codone:
-        o_diff = (datetime.now() - datetime.strptime(last_codone, "%Y-%m-%d %H:%M")).total_seconds() / 3600
-        if o_diff >= 4:
-            st.error(f"🔔 DUE NOW: Oxycodone (Last dose {o_diff:.1f}h ago)")
-            alarm_triggered = True
+        if (datetime.now() - datetime.strptime(last_codone, "%Y-%m-%d %H:%M")).total_seconds() / 3600 >= 4:
+            st.error("🔔 DUE: Oxycodone (4h elapsed)"); alarm_triggered = True
 
-    # 24hr Safety Limit for Oxycodone
-    oxy_total = get_24hr_total(target_user, "Oxycodone")
+    # Limit Warnings
     if oxy_total >= 35:
-        st.warning(f"🛑 24HR LIMIT REACHED: {oxy_total}ml Oxycodone taken. STOP.")
-    
-    # Play sound if anything is due
-    if alarm_triggered:
-        play_alarm()
+        st.error("🛑 OXYCODONE LIMIT REACHED (35ml). Administration blocked.")
+    if cbd_total > 4:
+        st.warning(f"⚠️ CBD OIL WARNING: {cbd_total}ml exceeds daily 4ml guideline.")
 
-    # --- LOGGING ---
-    st.subheader("💊 Record Dose")
+    if alarm_triggered: play_alarm()
+
+    # --- RECORDING ---
+    st.divider()
+    st.subheader("💊 Log Medication")
     master_meds = get_prescriptions(target_user)
     if master_meds:
         options_map = {}
-        for m_name, m_dose in master_meds:
-            last_t = get_last_dose_time(target_user, m_name)
-            if last_t:
-                diff = (datetime.now() - datetime.strptime(last_t, "%Y-%m-%d %H:%M")).total_seconds() / 3600
-                label = f"{m_name} ({m_dose}) - {diff:.1f}h ago"
-            else: label = f"{m_name} ({m_dose}) - Never logged"
-            options_map[label] = (m_name, m_dose)
+        for name, dose in master_meds:
+            last_t = get_last_dose_time(target_user, name)
+            diff_str = f"{(datetime.now() - datetime.strptime(last_t, '%Y-%m-%d %H:%M')).total_seconds()/3600:.1f}h ago" if last_t else "Never"
+            label = f"{name} ({dose}) - Last: {diff_str}"
+            options_map[label] = (name, dose)
 
-        sel = st.selectbox("Select Med:", [""] + list(options_map.keys()))
+        sel = st.selectbox("Select from Prescribed List:", [""] + list(options_map.keys()))
         if sel:
-            name, dose = options_map[sel]
-            if st.button(f"Confirm {name} {dose}"):
-                conn = sqlite3.connect('meds.db')
-                c = conn.cursor()
-                now = datetime.now().strftime("%Y-%m-%d %H:%M")
-                c.execute('INSERT INTO medications VALUES (?,?,?,?)', (target_user, name, dose, now))
-                conn.commit()
-                st.rerun()
+            n, d = options_map[sel]
+            # BLOCK OXYCODONE IF AT LIMIT
+            if n == "Oxycodone" and oxy_total >= 35:
+                st.error("Submission blocked: Daily limit reached.")
+            else:
+                if st.button(f"Confirm {n} {d}"):
+                    conn = sqlite3.connect('meds.db')
+                    c = conn.cursor()
+                    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    c.execute('INSERT INTO medications VALUES (?,?,?,?)', (target_user, n, d, now))
+                    conn.commit()
+                    st.rerun()
 
-    st.subheader("History")
+    st.subheader("Full Log History")
     hist = get_meds(target_user)
     if hist: st.dataframe(pd.DataFrame(hist, columns=["Med", "Dose", "Time"]), use_container_width=True)
     if st.sidebar.button("Logout"): st.session_state.logged_in = False; st.rerun()
-    
