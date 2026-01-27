@@ -1,27 +1,30 @@
 # 🏥 MedLog Shared Care
 
-MedLog is a collaborative web application designed to help patients and clinicians track medication adherence in real-time. It provides a shared dashboard where caregivers can monitor multiple patients and receive visual alerts if a dose is overdue.
+MedLog is a collaborative medication adherence platform designed for patients and clinicians. It provides real-time monitoring and high-visibility alerts to ensure medication schedules are followed safely and accurately.
 
 
 
-## ✨ Features
+## ✨ Key Features
 
-- **Dual-Role Access:** Separate interfaces for Patients and Clinicians.
-- **Real-Time Adherence Alerts:** Dashboard status turns **RED** if no medication is logged within a 4-hour window.
-- **Clinician Oversight:** Caregivers can select specific patients from a dropdown to view history or log doses on their behalf.
-- **Self-Clearing Registration:** Easily register multiple patients in one sitting.
-- **History Tracking:** Automated timestamping and persistent logging of all medication events.
+- **Role-Based Access:** - **Patients:** Log daily doses and view personal history.
+  - **Clinicians:** Monitor multiple patients from a single dashboard and log doses on their behalf.
+- **The 4-Hour Safety Alert:** Automated system that turns the dashboard status **RED** if no medication has been logged within a 4-hour window.
+- **Smart Registration:** A specialized "Add Another User" flow that clears the form automatically, allowing clinicians to set up multiple patient accounts quickly.
+- **Audit Trail:** Persistent logging of medication name, dosage, and precise timestamps using a local SQLite database.
 
 ## 🛠️ Tech Stack
 
-- **Framework:** [Streamlit](https://streamlit.io/)
-- **Language:** Python 3.x
+- **Frontend/UI:** [Streamlit](https://streamlit.io/)
+- **Backend:** Python 3.x
 - **Database:** SQLite3
 - **Deployment:** Streamlit Community Cloud
 
+
+
 ## 🚀 Local Setup
+
+To run this project on your own machine, follow these steps:
 
 1. **Clone the repository:**
    ```bash
-   git clone [https://github.com/CyeCandy/med-tracker.git]
-   cd med-tracker
+   git clone [https://github.com/CyeCandy/med-tracker.git](https://github.com/CyeCandy/med-tracker.git)
