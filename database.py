@@ -54,10 +54,13 @@ def get_all_patients():
     conn.close()
     return patients
 
-def get_last_dose_time(username):
+def get_last_dose_time(username, drug_name=None):
     conn = sqlite3.connect('meds.db', check_same_thread=False)
     c = conn.cursor()
-    c.execute('SELECT timestamp FROM medications WHERE username=? ORDER BY timestamp DESC LIMIT 1', (username,))
+    if drug_name:
+        c.execute('SELECT timestamp FROM medications WHERE username=? AND name=? ORDER BY timestamp DESC LIMIT 1', (username, drug_name))
+    else:
+        c.execute('SELECT timestamp FROM medications WHERE username=? ORDER BY timestamp DESC LIMIT 1', (username,))
     result = c.fetchone()
     conn.close()
     return result[0] if result else None
