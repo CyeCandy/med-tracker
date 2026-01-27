@@ -7,6 +7,7 @@ from database import init_db, add_user, get_meds, get_all_patients, get_last_dos
 st.set_page_config(page_title="MedLog Shared Care", page_icon="🏥", layout="wide")
 init_db()
 
+# Session State
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'user' not in st.session_state:
@@ -16,6 +17,7 @@ if 'role' not in st.session_state:
 if 'signup_iter' not in st.session_state:
     st.session_state.signup_iter = 0
 
+# --- AUTH / SIGNUP ---
 if not st.session_state.logged_in:
     menu = st.sidebar.radio("Navigation", ["Login", "Sign Up"])
     
@@ -29,18 +31,17 @@ if not st.session_state.logged_in:
         if st.button("Register User"):
             if u and p:
                 if add_user(u, p, role_map[r]):
-                    st.success(f"✅ Account for **{u}** ({role_map[r]}) created!")
-                    if st.button("Clear form to add another user"):
+                    st.success(f"✅ Account for **{u}** created!")
+                    if st.button("Clear & Add Another"):
                         st.session_state.signup_iter += 1
                         st.rerun()
                 else:
                     st.error("❌ Username already exists.")
-            else:
-                st.warning("Please fill in all fields.")
+
     else:
         st.title("🔐 Login")
-        u = st.text_input("Username", key="log_u")
-        p = st.text_input("Password", type="password", key="log_p")
+        u = st.text_input("Username")
+        p = st.text_input("Password", type="password")
         if st.button("Login"):
             conn = sqlite3.connect('meds.db', check_same_thread=False)
             c = conn.cursor()
@@ -54,51 +55,63 @@ if not st.session_state.logged_in:
                 st.rerun()
             else:
                 st.error("Invalid credentials.")
-else:
-    st.sidebar.title(f"User: {st.session_state.user}")
-    st.sidebar.info(f"Role: {st.session_state.role}")
-    target_user = st.session_state.user
-    if st.session_state.role == "Clinician":
-        patients = get_all_patients()
-        if patients:
-            target_user = st.sidebar.selectbox("Monitoring Patient:", patients)
-            st.title(f"Clinical Dashboard: {target_user}")
-        else:
-            st.title("Clinician Dashboard")
-            st.warning("No patients registered yet.")
-    else:
-        st.title(f"My Medication Log: {target_user}")
 
+# --- DASHBOARD ---
+else:
+    st.sidebar.title(f"Welcome, {st.session_state.user}")
+    
+    # Identify who we are looking at
+    target_user = st.session_state.user 
+    
+    if st.session_state.role == "Clinician":
+        st.title("👨‍⚕️ Clinician Control Panel")
+        patients = get_all_patients()
+        
+        if patients:
+            # SEARCHABLE DROPDOWN
+            target_user = st.sidebar.selectbox("🔍 Search/Select Patient:", patients)
+            st.subheader(f"Monitoring: {target_user}")
+        else:
+            st.warning("No patients found in system.")
+    else:
+        st.title(f"📊 My Health Log: {st.session_state.user}")
+
+    # --- STATUS ALERT ---
     last_time_str = get_last_dose_time(target_user)
     if last_time_str:
         last_dose_dt = datetime.strptime(last_time_str, "%Y-%m-%d %H:%M")
-        time_diff = datetime.now() - last_dose_dt
-        hours_since = time_diff.total_seconds() / 3600
+        hours_since = (datetime.now() - last_dose_dt).total_seconds() / 3600
         if hours_since > 4:
-            st.error(f"🚨 **ALERT:** No doses logged for {target_user} in the last {hours_since:.1f} hours!")
+            st.error(f"🚨 ALERT: {target_user} is {hours_since:.1f} hours overdue!")
         else:
-            st.success(f"✅ **On Track:** Last dose was {hours_since:.1f} hours ago.")
-    else:
-        st.info("No records found for this user.")
+            st.success(f"✅ {target_user} is on track. Last dose: {hours_since:.1f} hours ago.")
 
-    with st.expander(f"➕ Add Entry for {target_user}"):
-        with st.form("med_log_form", clear_on_submit=True):
-            m_name = st.text_input("Medication Name")
-            m_dose = st.text_input("Dosage")
-            if st.form_submit_button("Submit Log"):
-                if m_name and m_dose:
+    # --- CLINICIAN ENTRY FORM ---
+    with st.expander(f"💊 Log Medication for {target_user}", expanded=True):
+        with st.form("entry_form", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                drug = st.text_input("Medication Name")
+            with col2:
+                dose = st.text_input("Dosage (e.g., 500mg)")
+            
+            submit = st.form_submit_button("Record Dose")
+            if submit:
+                if drug and dose:
                     conn = sqlite3.connect('meds.db', check_same_thread=False)
                     c = conn.cursor()
                     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    c.execute('INSERT INTO medications VALUES (?,?,?,?)', (target_user, m_name, m_dose, now))
+                    c.execute('INSERT INTO medications VALUES (?,?,?,?)', (target_user, drug, dose, now))
                     conn.commit()
                     conn.close()
+                    st.toast(f"Recorded {drug} for {target_user}")
                     st.rerun()
 
-    st.subheader("Recent History")
+    # --- HISTORY ---
+    st.subheader(f"📜 {target_user}'s Dose History")
     history = get_meds(target_user)
     if history:
-        df = pd.DataFrame(history, columns=["Medication", "Dosage", "Time Logged"])
+        df = pd.DataFrame(history, columns=["Medication", "Dosage", "Logged At"])
         st.dataframe(df, use_container_width=True)
     
     if st.sidebar.button("Logout"):
