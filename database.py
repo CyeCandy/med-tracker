@@ -23,9 +23,7 @@ def get_prescriptions(username):
     conn = sqlite3.connect('meds.db', check_same_thread=False)
     c = conn.cursor()
     c.execute('SELECT drug_name, dosage FROM prescriptions WHERE username=?', (username,))
-    data = c.fetchall()
-    conn.close()
-    return data
+    return c.fetchall()
 
 def add_user(username, password, role="Patient"):
     conn = sqlite3.connect('meds.db', check_same_thread=False)
@@ -34,26 +32,19 @@ def add_user(username, password, role="Patient"):
         c.execute('INSERT INTO users VALUES (?,?,?)', (username, password, role))
         conn.commit()
         return True
-    except sqlite3.IntegrityError:
-        return False 
-    finally:
-        conn.close()
+    except: return False
 
 def get_meds(username):
     conn = sqlite3.connect('meds.db', check_same_thread=False)
     c = conn.cursor()
     c.execute('SELECT name, dosage, timestamp FROM medications WHERE username=? ORDER BY timestamp DESC', (username,))
-    data = c.fetchall()
-    conn.close()
-    return data
+    return c.fetchall()
 
 def get_all_patients():
     conn = sqlite3.connect('meds.db', check_same_thread=False)
     c = conn.cursor()
     c.execute("SELECT username FROM users WHERE role='Patient'")
-    patients = [row[0] for row in c.fetchall()]
-    conn.close()
-    return patients
+    return [row[0] for row in c.fetchall()]
 
 def get_last_dose_time(username, drug_name=None):
     conn = sqlite3.connect('meds.db', check_same_thread=False)
@@ -62,9 +53,8 @@ def get_last_dose_time(username, drug_name=None):
         c.execute('SELECT timestamp FROM medications WHERE username=? AND name=? ORDER BY timestamp DESC LIMIT 1', (username, drug_name))
     else:
         c.execute('SELECT timestamp FROM medications WHERE username=? ORDER BY timestamp DESC LIMIT 1', (username,))
-    result = c.fetchone()
-    conn.close()
-    return result[0] if result else None
+    res = c.fetchone()
+    return res[0] if res else None
 
 def get_24hr_total(username, drug_name):
     conn = sqlite3.connect('meds.db', check_same_thread=False)
@@ -72,12 +62,8 @@ def get_24hr_total(username, drug_name):
     since = (datetime.now() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M")
     c.execute('SELECT dosage FROM medications WHERE username=? AND name=? AND timestamp > ?', (username, drug_name, since))
     doses = c.fetchall()
-    conn.close()
     total = 0.0
     for d in doses:
-        try:
-            clean_val = d[0].lower().replace('ml', '').replace('mg', '').strip()
-            total += float(clean_val)
-        except:
-            continue
+        try: total += float(d[0].lower().replace('ml','').strip())
+        except: continue
     return total
