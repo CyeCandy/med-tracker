@@ -76,7 +76,6 @@ def get_24hr_total(username, drug_name):
     total = 0.0
     for d in doses:
         try:
-            # Cleans "7 ml" or "4 ml" into a float
             clean_val = d[0].lower().replace('ml', '').replace('mg', '').strip()
             total += float(clean_val)
         except:
