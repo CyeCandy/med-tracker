@@ -3,12 +3,9 @@ import sqlite3
 def init_db():
     conn = sqlite3.connect('meds.db', check_same_thread=False)
     c = conn.cursor()
-    # User accounts
     c.execute('CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT)')
-    # Master list of drugs assigned to a patient (Prescriptions)
     c.execute('''CREATE TABLE IF NOT EXISTS prescriptions 
                  (username TEXT, drug_name TEXT, dosage TEXT, UNIQUE(username, drug_name))''')
-    # Actual logs of when a dose was taken
     c.execute('''CREATE TABLE IF NOT EXISTS medications 
                  (username TEXT, name TEXT, dosage TEXT, timestamp DATETIME)''')
     conn.commit()
@@ -17,7 +14,6 @@ def init_db():
 def add_prescription(username, drug, dose):
     conn = sqlite3.connect('meds.db', check_same_thread=False)
     c = conn.cursor()
-    # Updates the dose if the drug already exists for that user
     c.execute('INSERT OR REPLACE INTO prescriptions VALUES (?,?,?)', (username, drug, dose))
     conn.commit()
     conn.close()
