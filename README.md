@@ -27,4 +27,4 @@ To run this project on your own machine, follow these steps:
 
 1. **Clone the repository:**
    ```bash
-   git clone [https://github.com/CyeCandy/med-tracker.git](https://github.com/CyeCandy/med-tracker.git)
+   git clone [https://github.com/CyeCandy/med-tracker.git]
