@@ -8,6 +8,9 @@ from database import (
     get_24hr_total, verify_user, add_med_log
 )
 
+# --- SECURITY CONFIG ---
+CLINIC_KEY = "CARE2026" # Change this secret key for your clinic
+
 st.set_page_config(page_title="MedLog Shared Care", layout="wide")
 init_db()
 
@@ -25,11 +28,20 @@ with st.sidebar:
         u = st.text_input("Username")
         p = st.text_input("Password", type="password")
         if mode == "Sign Up":
-            # ROLES ARE NOW SPLIT
             r = st.selectbox("Role", ["Patient", "Clinician", "Carer"])
+            
+            # Show Access Code field only for Clinicians and Carers
+            access_code = ""
+            if r in ["Clinician", "Carer"]:
+                access_code = st.text_input("Clinic Access Code", type="password")
+                
             if st.button("Create Account"):
-                if add_user(u, p, r): st.success(f"Account created as {r}!")
-                else: st.error("Username taken.")
+                if r in ["Clinician", "Carer"] and access_code != CLINIC_KEY:
+                    st.error("Invalid Clinic Access Code.")
+                elif add_user(u, p, r):
+                    st.success(f"Account created as {r}!")
+                else:
+                    st.error("Username already exists.")
         else:
             if st.button("Sign In"):
                 res = verify_user(u, p)
@@ -44,7 +56,6 @@ with st.sidebar:
         st.write(f"🛡️ **Role:** {st.session_state.role}")
         
         target_patient = st.session_state.user
-        # Admins are anyone not a Patient
         is_admin = st.session_state.role in ["Clinician", "Carer"]
         
         if is_admin:
@@ -78,8 +89,8 @@ if st.session_state.logged_in:
         # 2. Safety Alarms
         o_tot = get_24hr_total(target_patient, "Oxycodone")
         c_tot = get_24hr_total(target_patient, "CBD Oil")
-        if o_tot >= 35: st.error(f"🚨 ALARM: Oxycodone 24h limit reached! ({o_tot}ml)")
-        if c_tot >= 4: st.error(f"🚨 ALARM: CBD Oil 24h limit reached! ({c_tot}ml)")
+        if o_tot >= 35: st.error(f"🚨 ALARM: Oxycodone 24h limit reached! ({o_tot}ml/35ml)")
+        if c_tot >= 4: st.error(f"🚨 ALARM: CBD Oil 24h limit reached! ({c_tot}ml/4ml)")
 
         # 3. Timers
         st.subheader("⏲️ Next Dose Countdown")
@@ -136,7 +147,7 @@ if st.session_state.logged_in:
                     add_prescription(target_patient, nd, ds)
                     st.success("Updated!"); st.rerun()
             elif st.session_state.role == "Carer":
-                st.info("🛡️ Carer Mode: You can view and log, but only Clinicians can change prescriptions.")
+                st.info("🛡️ Carer Mode: Authorized to log doses. Only Clinicians can modify prescriptions.")
             else:
                 st.info("🔒 Restricted: Only Clinicians can modify prescriptions.")
 
