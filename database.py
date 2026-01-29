@@ -60,6 +60,7 @@ def get_meds(username):
 def get_all_patients():
     with get_connection() as conn:
         c = conn.cursor()
+        # Strictly pull only 'Patient' roles for the Clinician/Carer's dropdown
         c.execute("SELECT username FROM users WHERE role='Patient'")
         return [row[0] for row in c.fetchall()]
 
