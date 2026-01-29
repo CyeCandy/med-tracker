@@ -8,7 +8,7 @@ from database import (
     get_24hr_total, verify_user, add_med_log
 )
 
-# Initialize app
+# --- APP CONFIG & DB INIT ---
 st.set_page_config(page_title="MedLog Shared Care", layout="wide", initial_sidebar_state="expanded")
 init_db()
 
@@ -19,7 +19,7 @@ def play_alarm():
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
-# --- SIDEBAR ---
+# --- SIDEBAR: IDENTITY & PATIENT SELECTION ---
 with st.sidebar:
     st.title("🏥 MedLog Pro")
     if not st.session_state.logged_in:
@@ -39,7 +39,9 @@ with st.sidebar:
                     st.rerun()
                 else: st.error("Invalid Login.")
     else:
-        st.write(f"**User:** {st.session_state.user} ({st.session_state.role})")
+        st.write(f"**Logged in as:** {st.session_state.user}")
+        st.write(f"**Role:** {st.session_state.role}")
+        
         target_patient = st.session_state.user
         if st.session_state.role == "Clinician/Carer":
             pts = get_all_patients()
@@ -58,10 +60,10 @@ if st.session_state.logged_in:
     else:
         st.title(f"Care Record: {target_patient}")
         
-        # Pull history once for multiple uses
+        # Pull history early for summary and charts
         h_all = get_meds(target_patient)
 
-        # 1. QUICK SUMMARY (LAST 3 DOSES)
+        # 1. QUICK SUMMARY: LAST 3 DOSES
         st.subheader("⏱️ Recent Activity")
         if h_all:
             recent = h_all[:3]
@@ -70,18 +72,20 @@ if st.session_state.logged_in:
                 with cols[i]:
                     st.info(f"**{m}** ({d})\n\n{t}\n\n*By: {b}*")
         else:
-            st.write("No recent activity found.")
+            st.write("No doses recorded yet.")
 
-        # 2. METRICS & 24H ALARMS
+        # 2. SAFETY METRICS & 24H ALARMS
         st.divider()
         col1, col2, col3 = st.columns(3)
         o_tot = get_24hr_total(target_patient, "Oxycodone")
         c_tot = get_24hr_total(target_patient, "CBD Oil")
         con_tot = get_24hr_total(target_patient, "Oxycontin")
 
-        # Visual Alarms for 24h Limits
-        if o_tot >= 35: st.error(f"🚨 ALARM: Oxycodone 24h limit (35ml) REACHED: {o_tot}ml")
-        if c_tot >= 4: st.error(f"🚨 ALARM: CBD Oil 24h limit (4ml) REACHED: {c_tot}ml")
+        # Visual Alarms for 24h Limits (35ml for Oxycodone, 4ml for CBD)
+        if o_tot >= 35: 
+            st.error(f"🚨 ALARM: Oxycodone 24h limit reached! ({o_tot}ml / 35ml)")
+        if c_tot >= 4: 
+            st.error(f"🚨 ALARM: CBD Oil 24h limit reached! ({c_tot}ml / 4ml)")
 
         col1.metric("Oxycodone (24h)", f"{o_tot} ml", "/ 35ml")
         col2.metric("CBD Oil (24h)", f"{c_tot} ml", "/ 4ml")
@@ -93,40 +97,66 @@ if st.session_state.logged_in:
             df_chart = pd.DataFrame(h_all, columns=["Medication", "Dosage", "Time", "Logged By"])
             df_chart['Time'] = pd.to_datetime(df_chart['Time'])
             df_chart['Date'] = df_chart['Time'].dt.date
-            # Extraction logic for charts (handles '5ml', '2.5 ml', etc)
+            # Extract number from string (e.g., '5.0ml' -> 5.0)
             df_chart['Dosage_Val'] = df_chart['Dosage'].str.extract('(\d+\.?\d*)').astype(float)
             
             chart_pivot = df_chart.groupby(['Date', 'Medication'])['Dosage_Val'].sum().unstack().fillna(0)
             st.bar_chart(chart_pivot)
 
-        # 4. DUE ALERTS
+        # 4. DUE ALERTS (INTERVAL CHECKS)
         alarm = False
         for drug, limit in [("Oxycontin", 12), ("Oxycodone", 4)]:
             last = get_last_dose_time(target_patient, drug)
             if last:
                 diff = (datetime.now() - datetime.strptime(last, "%Y-%m-%d %H:%M")).total_seconds() / 3600
                 if diff >= limit:
-                    st.warning(f"🔔 {drug} is DUE ({diff:.1f}h since last dose)"); alarm = True
+                    st.warning(f"🔔 {drug} is DUE ({diff:.1f}h since last dose)")
+                    alarm = True
         if alarm: play_alarm()
 
-        # 5. RECORDING & MANAGEMENT
-        tab1, tab2 = st.tabs(["💊 Log Dose", "⚙️ Prescriptions"])
+        # 5. DOSING & CLINICIAN MANAGEMENT
+        tab1, tab2 = st.tabs(["💊 Log Medication", "⚙️ Prescription Setup"])
+        
         with tab1:
-            st.subheader("Record New Dose")
+            st.subheader("Record Administration")
             master = get_prescriptions(target_patient)
             if master:
                 opts = {f"{n} ({d})": (n, d) for n, d in master}
                 sel = st.selectbox("Select Medication:", [""] + list(opts.keys()))
                 if sel:
                     n, d = opts[sel]
+                    # Hard-stop safety check for Oxycodone
                     if n == "Oxycodone" and o_tot >= 35:
-                        st.error("🛑 Safety Block: 24h limit reached.")
+                        st.error("🛑 ACTION BLOCKED: Daily safety limit reached.")
                     elif st.button(f"Confirm Dose as {st.session_state.user}"):
                         add_med_log(target_patient, n, d, st.session_state.user)
-                        st.success(f"Logged {n}"); st.rerun()
-            else: st.info("No active prescriptions.")
+                        st.success(f"Dose of {n} recorded.")
+                        st.rerun()
+            else:
+                st.info("No active prescriptions. A Clinician/Carer must add them in the Setup tab.")
 
         with tab2:
+            # ONLY CLINICIAN/CARER CAN ADD DRUGS
             if st.session_state.role == "Clinician/Carer":
-                st.subheader("Manage Prescriptions")
-                nd = st.text_input("Drug Name")
+                st.subheader("Add or Update Prescription")
+                nd = st.text_input("Drug Name (e.g., CBD Oil)")
+                ds = st.text_input("Standard Dosage (e.g., 2.5ml)")
+                if st.button("Save Prescription"):
+                    if nd and ds:
+                        add_prescription(target_patient, nd, ds)
+                        st.success(f"Prescription for {nd} saved for {target_patient}.")
+                        st.rerun()
+            else:
+                st.info("🔒 Restricted: Only a Clinician or Carer can manage prescriptions.")
+
+        # 6. FULL HISTORY & EXPORT
+        st.divider()
+        st.subheader("📜 Full History Record")
+        if h_all: 
+            df_hist = pd.DataFrame(h_all, columns=["Medication", "Dosage", "Time", "Logged By"])
+            st.dataframe(df_hist, use_container_width=True)
+            csv = df_hist.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Export History to CSV", csv, f"{target_patient}_med_history.csv", "text/csv")
+else:
+    st.title("🏥 Home Care MedLog")
+    st.write("Please sign in via the sidebar to continue.")
