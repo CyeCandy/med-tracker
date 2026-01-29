@@ -60,7 +60,6 @@ def get_meds(username):
 def get_all_patients():
     with get_connection() as conn:
         c = conn.cursor()
-        # CRITICAL: Only pull users who are registered as 'Patient'
         c.execute("SELECT username FROM users WHERE role='Patient'")
         return [row[0] for row in c.fetchall()]
 
