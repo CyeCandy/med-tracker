@@ -13,7 +13,9 @@ def hash_password(password):
 def init_db():
     with get_connection() as conn:
         c = conn.cursor()
-        c.execute('CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT)')
+        # Added sms_gateway to store the carrier email (e.g. 123456789@vtext.com)
+        c.execute('''CREATE TABLE IF NOT EXISTS users 
+                     (username TEXT PRIMARY KEY, password TEXT, role TEXT, sms_gateway TEXT)''')
         c.execute('''CREATE TABLE IF NOT EXISTS prescriptions 
                      (username TEXT, drug_name TEXT, dosage TEXT, UNIQUE(username, drug_name))''')
         c.execute('''CREATE TABLE IF NOT EXISTS medications 
@@ -24,16 +26,32 @@ def init_db():
                      (timestamp DATETIME, clinician TEXT, patient TEXT, action TEXT, details TEXT)''')
         conn.commit()
 
-def log_audit(clinician, patient, action, details):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with get_connection() as conn:
-        conn.execute('INSERT INTO audit_log VALUES (?,?,?,?,?)', (now, clinician, patient, action, details))
+def add_user(username, password, role="Patient", sms_gateway=""):
+    hashed = hash_password(password)
+    try:
+        with get_connection() as conn:
+            conn.execute('INSERT INTO users VALUES (?,?,?,?)', (username, hashed, role, sms_gateway))
+            return True
+    except sqlite3.IntegrityError:
+        return False
 
-def get_audit_logs(patient):
+def verify_user(username, password):
+    hashed = hash_password(password)
     with get_connection() as conn:
         c = conn.cursor()
-        c.execute('SELECT timestamp, clinician, action, details FROM audit_log WHERE patient=? ORDER BY timestamp DESC', (patient,))
-        return c.fetchall()
+        c.execute('SELECT role FROM users WHERE username=? AND password=?', (username, hashed))
+        return c.fetchone()
+
+def get_user_sms(username):
+    with get_connection() as conn:
+        c = conn.cursor()
+        c.execute('SELECT sms_gateway FROM users WHERE username=?', (username,))
+        res = c.fetchone()
+        return res[0] if res else None
+
+def add_prescription(username, drug, dose):
+    with get_connection() as conn:
+        conn.execute('INSERT OR REPLACE INTO prescriptions VALUES (?,?,?)', (username, drug, dose))
 
 def set_safety_limit(username, drug, limit):
     with get_connection() as conn:
@@ -46,25 +64,16 @@ def get_safety_limit(username, drug):
         res = c.fetchone()
         return res[0] if res else None
 
-def add_user(username, password, role="Patient"):
-    hashed = hash_password(password)
-    try:
-        with get_connection() as conn:
-            conn.execute('INSERT INTO users VALUES (?,?,?)', (username, hashed, role))
-            return True
-    except sqlite3.IntegrityError:
-        return False
+def log_audit(clinician, patient, action, details):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_connection() as conn:
+        conn.execute('INSERT INTO audit_log VALUES (?,?,?,?,?)', (now, clinician, patient, action, details))
 
-def verify_user(username, password):
-    hashed = hash_password(password)
+def get_audit_logs(patient):
     with get_connection() as conn:
         c = conn.cursor()
-        c.execute('SELECT role FROM users WHERE username=? AND password=?', (username, hashed))
-        return c.fetchone()
-
-def add_prescription(username, drug, dose):
-    with get_connection() as conn:
-        conn.execute('INSERT OR REPLACE INTO prescriptions VALUES (?,?,?)', (username, drug, dose))
+        c.execute('SELECT timestamp, clinician, action, details FROM audit_log WHERE patient=? ORDER BY timestamp DESC', (patient,))
+        return c.fetchall()
 
 def get_prescriptions(username):
     with get_connection() as conn:
