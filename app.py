@@ -8,8 +8,7 @@ from database import (
     get_24hr_total, verify_user, add_med_log
 )
 
-# --- SECURITY CONFIG ---
-CLINIC_KEY = "CARE2026" # Change this secret key for your clinic
+CLINIC_KEY = "CARE2026" 
 
 st.set_page_config(page_title="MedLog Shared Care", layout="wide")
 init_db()
@@ -29,40 +28,28 @@ with st.sidebar:
         p = st.text_input("Password", type="password")
         if mode == "Sign Up":
             r = st.selectbox("Role", ["Patient", "Clinician", "Carer"])
-            
-            # Show Access Code field only for Clinicians and Carers
             access_code = ""
             if r in ["Clinician", "Carer"]:
                 access_code = st.text_input("Clinic Access Code", type="password")
-                
             if st.button("Create Account"):
                 if r in ["Clinician", "Carer"] and access_code != CLINIC_KEY:
                     st.error("Invalid Clinic Access Code.")
-                elif add_user(u, p, r):
-                    st.success(f"Account created as {r}!")
-                else:
-                    st.error("Username already exists.")
+                elif add_user(u, p, r): st.success(f"Account created as {r}!")
+                else: st.error("Username already exists.")
         else:
             if st.button("Sign In"):
                 res = verify_user(u, p)
                 if res:
-                    st.session_state.logged_in = True
-                    st.session_state.user = u
-                    st.session_state.role = res[0]
+                    st.session_state.logged_in, st.session_state.user, st.session_state.role = True, u, res[0]
                     st.rerun()
                 else: st.error("Invalid Login.")
     else:
-        st.write(f"👤 **User:** {st.session_state.user}")
-        st.write(f"🛡️ **Role:** {st.session_state.role}")
-        
+        st.write(f"👤 **User:** {st.session_state.user} | **Role:** {st.session_state.role}")
         target_patient = st.session_state.user
         is_admin = st.session_state.role in ["Clinician", "Carer"]
-        
         if is_admin:
             pts = get_all_patients()
             target_patient = st.selectbox("🔍 Select Patient:", ["-- Select Patient --"] + pts)
-        
-        st.divider()
         if st.button("Log Out"):
             st.session_state.clear()
             st.rerun()
@@ -70,10 +57,9 @@ with st.sidebar:
 # --- MAIN DASHBOARD ---
 if st.session_state.logged_in:
     is_admin = st.session_state.role in ["Clinician", "Carer"]
-    
     if is_admin and target_patient == "-- Select Patient --":
         st.title("Care Dashboard")
-        st.info("Please select a patient from the sidebar to begin.")
+        st.info("Please select a patient from the sidebar.")
     else:
         st.title(f"Care Record: {target_patient}")
         h_all = get_meds(target_patient)
@@ -89,8 +75,8 @@ if st.session_state.logged_in:
         # 2. Safety Alarms
         o_tot = get_24hr_total(target_patient, "Oxycodone")
         c_tot = get_24hr_total(target_patient, "CBD Oil")
-        if o_tot >= 35: st.error(f"🚨 ALARM: Oxycodone 24h limit reached! ({o_tot}ml/35ml)")
-        if c_tot >= 4: st.error(f"🚨 ALARM: CBD Oil 24h limit reached! ({c_tot}ml/4ml)")
+        if o_tot >= 35: st.error(f"🚨 ALARM: Oxycodone limit reached! ({o_tot}ml)")
+        if c_tot >= 4: st.error(f"🚨 ALARM: CBD Oil limit reached! ({c_tot}ml)")
 
         # 3. Timers
         st.subheader("⏲️ Next Dose Countdown")
@@ -103,55 +89,58 @@ if st.session_state.logged_in:
                 if last_time_str:
                     last_time = datetime.strptime(last_time_str, "%Y-%m-%d %H:%M")
                     next_due = last_time + timedelta(hours=interval)
-                    remaining = next_due - datetime.now()
-                    if remaining.total_seconds() > 0:
-                        st.metric(f"Next {drug}", f"{str(remaining).split('.')[0]} left")
+                    rem = next_due - datetime.now()
+                    if rem.total_seconds() > 0: st.metric(f"Next {drug}", f"{str(rem).split('.')[0]} left")
                     else:
                         st.warning(f"🔔 {drug} DUE NOW")
                         alarm_trigger = True
                 else: st.write(f"No {drug} history.")
         if alarm_trigger: play_alarm()
 
-        # 4. Trend Chart
-        if h_all:
-            st.subheader("📊 7-Day Trend")
-            df = pd.DataFrame(h_all, columns=["Medication", "Dosage", "Time", "Logged By"])
-            df['Time'] = pd.to_datetime(df['Time'])
-            df['Date'] = df['Time'].dt.date
-            df['Val'] = df['Dosage'].str.extract('(\d+\.?\d*)').astype(float)
-            chart_data = df.groupby(['Date', 'Medication'])['Val'].sum().unstack().fillna(0)
-            st.bar_chart(chart_data)
-
-        # 5. Tabs
+        # 4. Tabs
         tab1, tab2 = st.tabs(["💊 Log Dose", "⚙️ Setup"])
         with tab1:
-            st.subheader("Log Administration")
             master = get_prescriptions(target_patient)
             if master:
                 opts = {f"{n} ({d})": (n, d) for n, d in master}
-                sel = st.selectbox("Medication:", ["-- Select --"] + list(opts.keys()))
+                sel = st.selectbox("Select Medication:", ["-- Select --"] + list(opts.keys()))
                 if sel != "-- Select --":
                     n, d = opts[sel]
-                    if n == "Oxycodone" and o_tot >= 35:
-                        st.error("🛑 Blocked: Daily limit reached.")
+                    if n == "Oxycodone" and o_tot >= 35: st.error("🛑 Daily limit reached.")
                     elif st.button(f"Confirm Dose as {st.session_state.user}"):
                         add_med_log(target_patient, n, d, st.session_state.user)
                         st.success("Logged!"); st.rerun()
+            else: st.info("No prescriptions set.")
 
         with tab2:
             if st.session_state.role == "Clinician":
-                st.subheader("Prescription Management")
-                nd = st.text_input("Drug Name")
-                ds = st.text_input("Dosage (e.g. 5ml)")
-                if st.button("Save Prescription"):
-                    add_prescription(target_patient, nd, ds)
-                    st.success("Updated!"); st.rerun()
-            elif st.session_state.role == "Carer":
-                st.info("🛡️ Carer Mode: Authorized to log doses. Only Clinicians can modify prescriptions.")
+                st.subheader("📋 Prescription Management")
+                st.write(f"Define standard doses for **{target_patient}**")
+                
+                # Standard Drugs Quick-Entry
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    oxyc_d = st.text_input("Oxycontin Dose", "10mg")
+                    if st.button("Set Oxycontin"): add_prescription(target_patient, "Oxycontin", oxyc_d); st.rerun()
+                with col2:
+                    oxy_d = st.text_input("Oxycodone Dose", "5ml")
+                    if st.button("Set Oxycodone"): add_prescription(target_patient, "Oxycodone", oxy_d); st.rerun()
+                with col3:
+                    cbd_d = st.text_input("CBD Oil Dose", "0.5ml")
+                    if st.button("Set CBD Oil"): add_prescription(target_patient, "CBD Oil", cbd_d); st.rerun()
+                
+                st.divider()
+                st.write("Other Medication:")
+                custom_n = st.text_input("Drug Name")
+                custom_d = st.text_input("Dosage")
+                if st.button("Save Custom Medication"):
+                    if custom_n and custom_d: add_prescription(target_patient, custom_n, custom_d); st.rerun()
             else:
-                st.info("🔒 Restricted: Only Clinicians can modify prescriptions.")
+                st.info("🛡️ Restricted: Only a Clinician can set dosages.")
 
-        # 6. History
-        st.divider()
+        # 5. History & Trends
         if h_all:
-            st.dataframe(pd.DataFrame(h_all, columns=["Med", "Dose", "Time", "By"]), use_container_width=True)
+            st.divider()
+            st.subheader("📊 History & Trends")
+            df = pd.DataFrame(h_all, columns=["Med", "Dose", "Time", "By"])
+            st.dataframe(df, use_container_width=True)
