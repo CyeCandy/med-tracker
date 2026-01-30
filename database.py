@@ -1,6 +1,7 @@
 import sqlite3
 import hashlib
 from datetime import datetime, timedelta
+import re
 
 DB_NAME = 'meds.db'
 
@@ -13,7 +14,6 @@ def hash_password(password):
 def init_db():
     with get_connection() as conn:
         c = conn.cursor()
-        # Added sms_gateway to store the carrier email (e.g. 123456789@vtext.com)
         c.execute('''CREATE TABLE IF NOT EXISTS users 
                      (username TEXT PRIMARY KEY, password TEXT, role TEXT, sms_gateway TEXT)''')
         c.execute('''CREATE TABLE IF NOT EXISTS prescriptions 
@@ -114,10 +114,14 @@ def get_24hr_total(username, drug_name):
         since = (datetime.now() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M")
         c.execute('SELECT dosage FROM medications WHERE username=? AND name=? AND timestamp > ?', (username, drug_name, since))
         doses = c.fetchall()
+    
     total = 0.0
     for d in doses:
         try:
-            val = "".join(filter(lambda x: x.isdigit() or x == '.', d[0]))
-            total += float(val)
-        except: continue
+            # IMPROVED: Extract only numbers and decimals (e.g., "5.5ml" -> 5.5)
+            clean_val = re.findall(r"[-+]?\d*\.\d+|\d+", d[0])
+            if clean_val:
+                total += float(clean_val[0])
+        except (ValueError, IndexError):
+            continue
     return total
