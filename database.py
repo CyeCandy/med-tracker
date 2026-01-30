@@ -18,10 +18,33 @@ def init_db():
                      (username TEXT, drug_name TEXT, dosage TEXT, UNIQUE(username, drug_name))''')
         c.execute('''CREATE TABLE IF NOT EXISTS medications 
                      (username TEXT, name TEXT, dosage TEXT, timestamp DATETIME, logged_by TEXT)''')
-        # New table for 24h safety caps
         c.execute('''CREATE TABLE IF NOT EXISTS safety_limits 
                      (username TEXT, drug_name TEXT, max_24h_ml_mg REAL, UNIQUE(username, drug_name))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS audit_log 
+                     (timestamp DATETIME, clinician TEXT, patient TEXT, action TEXT, details TEXT)''')
         conn.commit()
+
+def log_audit(clinician, patient, action, details):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_connection() as conn:
+        conn.execute('INSERT INTO audit_log VALUES (?,?,?,?,?)', (now, clinician, patient, action, details))
+
+def get_audit_logs(patient):
+    with get_connection() as conn:
+        c = conn.cursor()
+        c.execute('SELECT timestamp, clinician, action, details FROM audit_log WHERE patient=? ORDER BY timestamp DESC', (patient,))
+        return c.fetchall()
+
+def set_safety_limit(username, drug, limit):
+    with get_connection() as conn:
+        conn.execute('INSERT OR REPLACE INTO safety_limits VALUES (?,?,?)', (username, drug, limit))
+
+def get_safety_limit(username, drug):
+    with get_connection() as conn:
+        c = conn.cursor()
+        c.execute('SELECT max_24h_ml_mg FROM safety_limits WHERE username=? AND drug_name=?', (username, drug))
+        res = c.fetchone()
+        return res[0] if res else None
 
 def add_user(username, password, role="Patient"):
     hashed = hash_password(password)
@@ -42,17 +65,6 @@ def verify_user(username, password):
 def add_prescription(username, drug, dose):
     with get_connection() as conn:
         conn.execute('INSERT OR REPLACE INTO prescriptions VALUES (?,?,?)', (username, drug, dose))
-
-def set_safety_limit(username, drug, limit):
-    with get_connection() as conn:
-        conn.execute('INSERT OR REPLACE INTO safety_limits VALUES (?,?,?)', (username, drug, limit))
-
-def get_safety_limit(username, drug):
-    with get_connection() as conn:
-        c = conn.cursor()
-        c.execute('SELECT max_24h_ml_mg FROM safety_limits WHERE username=? AND drug_name=?', (username, drug))
-        res = c.fetchone()
-        return res[0] if res else None
 
 def get_prescriptions(username):
     with get_connection() as conn:
